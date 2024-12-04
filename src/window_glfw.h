@@ -6,6 +6,7 @@
 #include <game_window.h>
 #include <GLFW/glfw3.h>
 #include <mutex>
+#include <chrono>
 
 class GLFWGameWindow : public GameWindow {
 
@@ -25,6 +26,10 @@ private:
     bool pendingFullscreenModeSwitch = false;
     std::vector<FullscreenMode> modes;
     FullscreenMode mode = { -1 }; 
+    std::chrono::time_point<std::chrono::system_clock> lastFrame;
+    int swapInterval = 0;
+    int checkBrokenVSync = 0;
+    bool brokenVSync = false;
 
     friend class GLFWJoystickManager;
 

@@ -55,6 +55,8 @@ GLFWGameWindow::GLFWGameWindow(const std::string& title, int width, int height, 
     glfwMakeContextCurrent(window);
 
     setRelativeScale();
+
+    lastFrame = std::chrono::system_clock::now();
 }
 
 void GLFWGameWindow::makeCurrent(bool c) {
@@ -192,10 +194,14 @@ bool GLFWGameWindow::getFullscreen() {
 }
 
 void GLFWGameWindow::setFullscreen(bool fullscreen) {
+    // Bug macOS fullscreen doesn't work correctly on newer macOS
+    // Ignore Fullscreen starting from now
+#ifndef __APPLE__
 #ifdef GAMEWINDOW_X11_LOCK
     std::lock_guard<std::recursive_mutex> lock(x11_sync);
 #endif
     requestFullscreen = fullscreen;
+#endif
 }
 
 void GLFWGameWindow::setClipboardText(std::string const &text) {
@@ -209,7 +215,24 @@ void GLFWGameWindow::swapBuffers() {
 #ifdef GAMEWINDOW_X11_LOCK
     std::lock_guard<std::recursive_mutex> lock(x11_sync);
 #endif
-    glfwSwapBuffers(window);
+    if(swapInterval > 0 && brokenVSync) {
+        std::chrono::time_point<std::chrono::system_clock, std::chrono::nanoseconds> waitTime = lastFrame + swapInterval * std::chrono::nanoseconds(1000000000 / 60);
+        lastFrame = std::chrono::system_clock::now();
+        std::this_thread::sleep_for(waitTime - lastFrame);
+        glfwSwapBuffers(window);
+    } else if(swapInterval > 0 && checkBrokenVSync >= 0) {
+        glfwSwapBuffers(window);
+        if(lastFrame + std::chrono::seconds(1) < std::chrono::system_clock::now()) {
+            checkBrokenVSync = -1;
+        } else {
+            checkBrokenVSync++;
+            if(checkBrokenVSync > 200) {
+                brokenVSync = true;
+            }
+        }
+    } else {
+        glfwSwapBuffers(window);
+    }
 }
 
 void GLFWGameWindow::setSwapInterval(int interval) {
@@ -217,6 +240,7 @@ void GLFWGameWindow::setSwapInterval(int interval) {
     std::lock_guard<std::recursive_mutex> lock(x11_sync);
 #endif
     glfwSwapInterval(interval);
+    swapInterval = interval;
 }
 
 void GLFWGameWindow::_glfwWindowSizeCallback(GLFWwindow* window, int w, int h) {
@@ -422,11 +446,18 @@ void GLFWGameWindow::_glfwWindowContentScaleCallback(GLFWwindow* window, float s
 }
 
 void GLFWGameWindow::setFullscreenMode(const FullscreenMode& mode) {
+    // Bug macOS fullscreen doesn't work correctly on newer macOS
+    // Ignore Fullscreen starting from now
+#ifndef __APPLE__
     this->mode = mode;
     pendingFullscreenModeSwitch = true;
+#endif
 }
 
 std::vector<FullscreenMode> GLFWGameWindow::getFullscreenModes() {
+#ifdef __APPLE__
+    return {};
+#else
     if(modes.empty()) {
         int nModes = 0;
         auto display = glfwGetPrimaryMonitor();
@@ -436,9 +467,11 @@ std::vector<FullscreenMode> GLFWGameWindow::getFullscreenModes() {
         }
     }
     return modes;
+#endif
 }
 
 FullscreenMode GLFWGameWindow::getFullscreenMode() {
+#ifndef __APPLE__
     auto display = glfwGetPrimaryMonitor();
     int nModes;
     auto modes = glfwGetVideoModes(display, &nModes);
@@ -451,5 +484,6 @@ FullscreenMode GLFWGameWindow::getFullscreenMode() {
             }
         }
     }
+#endif
     return FullscreenMode { -1 };
 }
